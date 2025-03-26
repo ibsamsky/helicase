@@ -26,11 +26,20 @@ impl TryFrom<u8> for Base {
     }
 }
 
-impl From<Base> for u8 {
-    fn from(value: Base) -> Self {
-        value as u8
-    }
+macro_rules! impl_integral_from_base {
+    ($($ty:ty)*) => {
+        $(
+            impl From<Base> for $ty {
+                fn from(value: Base) -> Self {
+                    value as $ty
+                }
+            }
+        )*
+    };
 }
+
+impl_integral_from_base!(u8 u16 u32 u64 u128 usize);
+impl_integral_from_base!(i8 i16 i32 i64 i128 isize);
 
 impl Base {
     /// Converts a u8 to a Base without checking bounds.
