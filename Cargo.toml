@@ -1,0 +1,23 @@
+[package]
+name = "helicase"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitvec = {version = "1.0.1", optional = true}
+
+[dev-dependencies]
+criterion = "0.5.1"
+fastrand = "2.3.0"
+
+[features]
+# Enables unstable nightly features
+unstable_nightly = []
+# Enables larger k-mers
+bitvec = ["dep:bitvec"]
+
+[[bench]]
+name = "kmer"
+harness = false
+
+# [profile.bench]
