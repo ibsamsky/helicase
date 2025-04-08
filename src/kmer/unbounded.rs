@@ -17,6 +17,8 @@ use crate::Base;
 #[derive(Debug)]
 pub struct Kmer {
     inner: BitBox<usize, Msb0>,
+    /// Index of the first base, in bits.
+    start: usize,
 }
 
 impl Kmer {
@@ -24,6 +26,7 @@ impl Kmer {
     pub fn new(k: usize) -> Self {
         Self {
             inner: bitbox![usize, Msb0; 0; k * 2],
+            start: 0,
         }
     }
 
@@ -32,18 +35,18 @@ impl Kmer {
         for (byte, chunk) in bytes.iter().zip(inner.chunks_exact_mut(8)) {
             chunk.store(*byte);
         }
-        Self { inner }
+        Self { inner, start: 0 }
     }
 
     pub fn push(&mut self, base: Base) {
-        let len = self.inner.len();
-        self.inner.shift_left(2);
         self.inner
-            .get_mut(len - 2..)
+            .get_mut(self.start..self.start + 2)
             .expect("slice is too small")
             .copy_from_bitslice(
                 &(base as usize).view_bits::<Msb0>()[(<usize>::BITS - 2) as usize..],
             );
+
+        self.start = (self.start + 2) % self.inner.len();
     }
 
     pub fn size(&self) -> usize {
@@ -53,7 +56,7 @@ impl Kmer {
     pub fn bases(&self) -> Bases<'_> {
         Bases {
             inner: self,
-            pos: 0,
+            num_read: 0,
         }
     }
 }
@@ -62,31 +65,29 @@ impl Kmer {
 #[derive(Debug)]
 pub struct Bases<'a> {
     inner: &'a Kmer,
-    pos: usize,
+    /// Number of bases that have already been read.
+    num_read: usize,
 }
 
 impl<'a> Iterator for Bases<'a> {
     type Item = Base;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= self.inner.size() {
+        if self.num_read >= self.inner.size() {
             return None;
         }
 
+        let bit_pos = (self.num_read * 2 + self.inner.start) % self.inner.inner.len();
+
         let base = unsafe {
-            Base::from_u8_unchecked(
-                self.inner
-                    .inner
-                    .get(self.pos * 2..self.pos * 2 + 2)?
-                    .load::<u8>(),
-            )
+            Base::from_u8_unchecked(self.inner.inner.get(bit_pos..bit_pos + 2)?.load::<u8>())
         };
-        self.pos += 1;
+        self.num_read += 1;
         Some(base)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.inner.size() - self.pos;
+        let remaining = self.inner.size() - self.num_read;
         (remaining, Some(remaining))
     }
 }
@@ -121,6 +122,31 @@ mod tests {
                 Base::from_u8_unchecked(kmer.inner.chunks_exact(2).next().unwrap().load::<u8>())
             },
             Base::T
+        );
+    }
+
+    #[test]
+    fn bases() {
+        let mut kmer = Kmer::new(7);
+        for _ in 0..3 {
+            kmer.push(Base::A);
+            kmer.push(Base::T);
+        }
+        kmer.push(Base::C);
+        kmer.push(Base::G);
+
+        let bases: Vec<Base> = kmer.bases().collect();
+        assert_eq!(
+            bases,
+            vec![
+                Base::T,
+                Base::A,
+                Base::T,
+                Base::A,
+                Base::T,
+                Base::C,
+                Base::G
+            ]
         );
     }
 

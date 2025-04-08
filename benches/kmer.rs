@@ -53,7 +53,7 @@ fn small(c: &mut Criterion) {
     group.finish();
 }
 
-#[cfg(feature = "unstable_nightly")]
+#[cfg(feature = "bitvec")]
 fn unbounded(c: &mut Criterion) {
     let mut group = c.benchmark_group("fixed (unbounded) kmer");
 
@@ -88,12 +88,20 @@ fn unbounded(c: &mut Criterion) {
                 }
             })
         });
+
+        group.throughput(Throughput::Elements(k as u64));
+        group.bench_function(format!("collect {k} k={k}"), |b| {
+            b.iter_with_large_drop(|| {
+                let bases: Vec<helicase::Base> = kmer.bases().collect();
+                black_box(bases);
+            })
+        });
     }
 
     group.finish();
 }
 
-#[cfg(not(feature = "unstable_nightly"))]
+#[cfg(not(feature = "bitvec"))]
 fn unbounded(_c: &mut Criterion) {}
 
 criterion_group!(benches, small, unbounded);

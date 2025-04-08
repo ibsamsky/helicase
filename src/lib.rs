@@ -6,11 +6,18 @@
 
 mod base;
 mod kmer;
+#[cfg(feature = "bitvec")]
+mod sequence;
 
 pub use base::Base;
 pub use kmer::small;
 #[cfg(feature = "bitvec")]
 pub use kmer::{growable, unbounded};
+#[cfg(feature = "bitvec")]
+pub use sequence::Sequence;
+
+#[doc(hidden)]
+pub(crate) trait Sealed {}
 
 pub(crate) mod utils {
     pub(crate) const fn saturating_bitmask(bits: u32) -> u64 {
