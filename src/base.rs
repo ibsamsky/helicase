@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 
 /// A nucleotide base.
@@ -10,6 +12,17 @@ pub enum Base {
     T,
     /// Guanine.
     G,
+}
+
+impl Display for Base {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Base::C => write!(f, "C"),
+            Base::A => write!(f, "A"),
+            Base::T => write!(f, "T"),
+            Base::G => write!(f, "G"),
+        }
+    }
 }
 
 impl TryFrom<u8> for Base {
@@ -25,21 +38,6 @@ impl TryFrom<u8> for Base {
         }
     }
 }
-
-macro_rules! impl_integral_from_base {
-    ($($ty:ty)*) => {
-        $(
-            impl From<Base> for $ty {
-                fn from(value: Base) -> Self {
-                    value as $ty
-                }
-            }
-        )*
-    };
-}
-
-impl_integral_from_base!(u8 u16 u32 u64 u128 usize);
-impl_integral_from_base!(i8 i16 i32 i64 i128 isize);
 
 impl Base {
     /// Converts a u8 to a Base without checking bounds.

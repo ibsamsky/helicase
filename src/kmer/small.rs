@@ -17,6 +17,7 @@
 //! it uses a `u64` to store the k-mer.
 
 use std::cell::Cell;
+use std::fmt::Display;
 use std::iter::FusedIterator;
 
 use crate::base::Base;
@@ -36,6 +37,16 @@ use crate::utils;
 #[derive(Debug, Clone)]
 pub struct Kmer<const K: usize> {
     inner: Cell<u64>,
+}
+
+impl<const K: usize> Display for Kmer<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.bases().map(|b| b.to_string()).collect::<String>()
+        )
+    }
 }
 
 impl<const K: usize> Default for Kmer<K> {

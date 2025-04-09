@@ -104,5 +104,56 @@ fn unbounded(c: &mut Criterion) {
 #[cfg(not(feature = "bitvec"))]
 fn unbounded(_c: &mut Criterion) {}
 
-criterion_group!(benches, small, unbounded);
+#[cfg(feature = "bitvec")]
+fn sequence(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sequence");
+    const K: usize = 23;
+
+    for pow in [5, 10, 20] {
+        let n = 1 << pow;
+
+        group.throughput(Throughput::Elements(n as u64));
+        group.bench_function(format!("push {n} bases"), |b| {
+            b.iter_batched(
+                || bases(n),
+                |bases| {
+                    let mut seq = helicase::Sequence::new();
+                    for base in bases {
+                        seq.push(black_box(base));
+                    }
+                },
+                BatchSize::SmallInput,
+            );
+        });
+
+        let mut seq = helicase::Sequence::new();
+        for base in std::iter::repeat_n(helicase::Base::A, n) {
+            seq.push(black_box(base));
+        }
+
+        let num_kmers = n - K + 1;
+        group.throughput(Throughput::Elements(num_kmers as u64));
+        group.bench_function(format!("iter {num_kmers} kmers k={K}"), |b| {
+            b.iter(|| {
+                for kmer in seq.kmers::<K>() {
+                    black_box(kmer);
+                }
+            })
+        });
+
+        group.throughput(Throughput::Elements(num_kmers as u64));
+        group.bench_function(format!("iter and mask {num_kmers} kmers k={K}"), |b| {
+            b.iter_with_large_drop(|| {
+                for kmer in seq.kmers::<K>().map(|kmer| kmer.into_masked()) {
+                    black_box(kmer);
+                }
+            })
+        });
+    }
+}
+
+#[cfg(not(feature = "bitvec"))]
+fn sequence(_c: &mut Criterion) {}
+
+criterion_group!(benches, small, unbounded, sequence);
 criterion_main!(benches);
