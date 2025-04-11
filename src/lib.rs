@@ -6,14 +6,12 @@
 
 mod base;
 mod kmer;
-#[cfg(feature = "bitvec")]
 mod sequence;
 
 pub use base::Base;
 pub use kmer::small;
 #[cfg(feature = "bitvec")]
 pub use kmer::{growable, unbounded};
-#[cfg(feature = "bitvec")]
 pub use sequence::Sequence;
 
 #[doc(hidden)]

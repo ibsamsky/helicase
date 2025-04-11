@@ -104,7 +104,6 @@ fn unbounded(c: &mut Criterion) {
 #[cfg(not(feature = "bitvec"))]
 fn unbounded(_c: &mut Criterion) {}
 
-#[cfg(feature = "bitvec")]
 fn sequence(c: &mut Criterion) {
     let mut group = c.benchmark_group("sequence");
     const K: usize = 23;
@@ -151,9 +150,6 @@ fn sequence(c: &mut Criterion) {
         });
     }
 }
-
-#[cfg(not(feature = "bitvec"))]
-fn sequence(_c: &mut Criterion) {}
 
 criterion_group!(benches, small, unbounded, sequence);
 criterion_main!(benches);

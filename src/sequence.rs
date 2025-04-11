@@ -1,33 +1,22 @@
-#![cfg(feature = "bitvec")]
-
-use bitvec::field::BitField;
-use bitvec::order::Msb0;
-use bitvec::vec::BitVec;
-use bitvec::view::BitView;
-
 use crate::Base;
 
 pub struct Sequence {
-    bases: BitVec<usize, Msb0>,
+    bases: Vec<Base>,
 }
 
 impl Sequence {
     pub fn new() -> Self {
-        Self {
-            bases: BitVec::new(),
-        }
+        Self { bases: vec![] }
     }
 
     pub fn push(&mut self, base: Base) {
-        self.bases
-            .extend_from_bitslice(&(base as usize).view_bits::<Msb0>()[usize::BITS as usize - 2..]);
+        self.bases.push(base);
     }
 
     pub fn kmers<const K: usize>(&self) -> SmallKmerIter<'_, K> {
         let kmer = crate::small::Kmer::<K>::new();
-        self.bases.chunks_exact(2).take(K - 1).for_each(|base| {
-            // SAFETY: 2-bit chunks are always in the range `0..4`.
-            kmer.push(unsafe { Base::from_u8_unchecked(base.load::<u8>()) });
+        self.bases.iter().take(K - 1).copied().for_each(|base| {
+            kmer.push(base);
         });
 
         SmallKmerIter {
@@ -48,18 +37,7 @@ impl<'a, const K: usize> Iterator for SmallKmerIter<'a, K> {
     type Item = crate::small::Kmer<K>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos * 2 >= self.seq.bases.len() {
-            return None;
-        }
-
-        assert!(self.pos * 2 + 1 < self.seq.bases.len());
-
-        let bit_pos = self.pos * 2;
-
-        self.kmer.push(unsafe {
-            Base::from_u8_unchecked(self.seq.bases[bit_pos..bit_pos + 2].load::<u8>())
-        });
-
+        self.kmer.push(*self.seq.bases.get(self.pos)?);
         self.pos += 1;
         Some(self.kmer.clone())
     }
