@@ -1,4 +1,6 @@
-use criterion::{BatchSize, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 
 fn bases(n: usize) -> Vec<helicase::Base> {
     let mut rng = fastrand::Rng::new();
@@ -14,7 +16,7 @@ fn small(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("fixed (small) kmer");
 
-    let kmer = helicase::small::Kmer::<K>::new();
+    let mut kmer = helicase::small::Kmer::<K>::new();
     group.throughput(Throughput::Elements(N as u64));
     group.bench_function(format!("push {N} k={K}"), |b| {
         b.iter_batched(
@@ -28,7 +30,7 @@ fn small(c: &mut Criterion) {
         )
     });
 
-    let kmer = helicase::small::Kmer::<K>::new();
+    let mut kmer = helicase::small::Kmer::<K>::new();
     for base in std::iter::repeat_n(helicase::Base::A, K) {
         kmer.push(black_box(base));
     }
@@ -142,8 +144,8 @@ fn sequence(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(num_kmers as u64));
         group.bench_function(format!("iter and mask {num_kmers} kmers k={K}"), |b| {
-            b.iter_with_large_drop(|| {
-                for kmer in seq.kmers::<K>().map(|kmer| kmer.into_masked()) {
+            b.iter(|| {
+                for kmer in seq.kmers::<K>().map(|kmer| kmer.as_masked()) {
                     black_box(kmer);
                 }
             })

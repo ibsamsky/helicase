@@ -1,12 +1,9 @@
-#![cfg(feature = "bitvec")]
-
 use std::iter::FusedIterator;
 
 use bitvec::bitbox;
 use bitvec::boxed::BitBox;
 use bitvec::field::BitField;
-use bitvec::order::Msb0;
-use bitvec::slice::BitSlice;
+use bitvec::order::Lsb0;
 use bitvec::view::BitView;
 
 use crate::Base;
@@ -16,7 +13,7 @@ use crate::Base;
 /// Stores 1 to `usize::MAX / 2` bases.
 #[derive(Debug)]
 pub struct Kmer {
-    inner: BitBox<usize, Msb0>,
+    store: BitBox<usize, Lsb0>,
     /// Index of the first base, in bits.
     start: usize,
 }
@@ -25,37 +22,39 @@ impl Kmer {
     /// Creates a new k-mer with the given size.
     pub fn new(k: usize) -> Self {
         Self {
-            inner: bitbox![usize, Msb0; 0; k * 2],
-            start: 0,
+            store: bitbox![usize, Lsb0; 0; k * 2],
+            start: k * 2,
         }
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let mut inner = bitbox!(usize, Msb0; 0; bytes.len() * 8);
-        for (byte, chunk) in bytes.iter().zip(inner.chunks_exact_mut(8)) {
+        let mut inner = bitbox!(usize, Lsb0; 0; bytes.len() * 8);
+        for (byte, chunk) in bytes.iter().rev().zip(inner.chunks_exact_mut(8)) {
             chunk.store(*byte);
         }
-        Self { inner, start: 0 }
+        Self {
+            store: inner,
+            start: bytes.len() * 8,
+        }
     }
 
     pub fn push(&mut self, base: Base) {
-        self.inner
-            .get_mut(self.start..self.start + 2)
+        self.store
+            .get_mut(self.start - 2..self.start)
             .expect("slice is too small")
-            .copy_from_bitslice(
-                &(base as usize).view_bits::<Msb0>()[(<usize>::BITS - 2) as usize..],
-            );
+            .copy_from_bitslice(&(base as usize).view_bits()[..2]);
 
-        self.start = (self.start + 2) % self.inner.len();
+        self.start = (self.start - 2) % self.store.len();
+        self.start += (self.start == 0) as usize * self.store.len(); // wrap around at 0
     }
 
     pub fn size(&self) -> usize {
-        self.inner.len() / 2
+        self.store.len() / 2
     }
 
     pub fn bases(&self) -> Bases<'_> {
         Bases {
-            inner: self,
+            kmer: self,
             num_read: 0,
         }
     }
@@ -64,7 +63,7 @@ impl Kmer {
 /// An iterator over the bases in a k-mer.
 #[derive(Debug)]
 pub struct Bases<'a> {
-    inner: &'a Kmer,
+    kmer: &'a Kmer,
     /// Number of bases that have already been read.
     num_read: usize,
 }
@@ -73,21 +72,26 @@ impl<'a> Iterator for Bases<'a> {
     type Item = Base;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.num_read >= self.inner.size() {
+        if self.num_read >= self.kmer.size() {
             return None;
         }
 
-        let bit_pos = (self.num_read * 2 + self.inner.start) % self.inner.inner.len();
+        let bit_pos = match (self.kmer.start as isize - self.num_read as isize * 2)
+            .rem_euclid(self.kmer.store.len() as isize)
+        {
+            0 => self.kmer.store.len(),
+            p => p as usize,
+        };
 
         let base = unsafe {
-            Base::from_u8_unchecked(self.inner.inner.get(bit_pos..bit_pos + 2)?.load::<u8>())
+            Base::from_u8_unchecked(self.kmer.store.get(bit_pos - 2..bit_pos)?.load::<u8>())
         };
         self.num_read += 1;
         Some(base)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.inner.size() - self.num_read;
+        let remaining = self.kmer.size() - self.num_read;
         (remaining, Some(remaining))
     }
 }
@@ -105,9 +109,9 @@ mod tests {
     #[test]
     fn new() {
         let kmer = Kmer::new(47);
-        dbg!(kmer.inner.as_raw_slice());
-        assert!(kmer.inner.not_any());
-        assert_eq!(kmer.inner.len(), 47 * 2);
+        dbg!(kmer.store.as_raw_slice());
+        assert!(kmer.store.not_any());
+        assert_eq!(kmer.store.len(), 47 * 2);
     }
 
     #[test]
@@ -116,10 +120,10 @@ mod tests {
         kmer.push(Base::A);
         kmer.push(Base::T);
 
-        assert_eq!(kmer.inner.len(), 2);
+        assert_eq!(kmer.store.len(), 2);
         assert_eq!(
             unsafe {
-                Base::from_u8_unchecked(kmer.inner.chunks_exact(2).next().unwrap().load::<u8>())
+                Base::from_u8_unchecked(kmer.store.chunks_exact(2).next().unwrap().load::<u8>())
             },
             Base::T
         );
@@ -152,12 +156,35 @@ mod tests {
 
     #[test]
     fn from_bytes() {
-        let bytes = [0b00011011u8];
+        let bytes = [0x1B, 0xAA, 0xF0, 0x0F, 0xCC, 0xFF, 0x00, 0x3C, 0xCF];
         let kmer = Kmer::from_bytes(&bytes);
-        assert_eq!(kmer.inner.len(), 8);
+        assert_eq!(kmer.store.len(), 9 * <u8>::BITS as usize);
+        assert_eq!(kmer.store.as_raw_slice(), &[0xAAF00FCCFF003CCF, 0x1B]);
         assert_eq!(
-            kmer.bases().collect::<Vec<_>>(),
-            vec![Base::C, Base::A, Base::T, Base::G]
+            kmer.bases().collect::<Vec<_>>()[..8],
+            vec![
+                Base::C,
+                Base::A,
+                Base::T,
+                Base::G,
+                Base::T,
+                Base::T,
+                Base::T,
+                Base::T
+            ][..]
+        );
+        assert_eq!(
+            kmer.bases().collect::<Vec<_>>()[28..],
+            vec![
+                Base::C,
+                Base::G,
+                Base::G,
+                Base::C,
+                Base::G,
+                Base::C,
+                Base::G,
+                Base::G
+            ][..]
         );
     }
 }

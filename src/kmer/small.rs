@@ -6,9 +6,9 @@
 //! use helicase::small::Kmer;
 //! use helicase::Base;
 //!
-//! let kmer = Kmer::<5>::new();
+//! let mut kmer = Kmer::<5>::new();
 //! kmer.push(Base::A).push(Base::A).push(Base::G).push(Base::T);
-//! assert_eq!(kmer.into_masked(), 0b00_01_01_11_10);
+//! assert_eq!(kmer.as_masked(), 0b00_01_01_11_10);
 //! ```
 //!
 //! # Limitations
@@ -16,7 +16,6 @@
 //! This implementation is not suitable for k-mers with more than 32 bases, as
 //! it uses a `u64` to store the k-mer.
 
-use std::cell::Cell;
 use std::fmt::Display;
 use std::iter::FusedIterator;
 
@@ -34,9 +33,9 @@ use crate::utils;
     doc = "[`unbounded`]: crate::kmer::unbounded"
 )]
 /// [`growable`]: crate::kmer::growable
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Kmer<const K: usize> {
-    inner: Cell<u64>,
+    inner: u64,
 }
 
 impl<const K: usize> Display for Kmer<K> {
@@ -57,9 +56,7 @@ impl<const K: usize> Default for Kmer<K> {
 
 impl<const K: usize> From<u64> for Kmer<K> {
     fn from(value: u64) -> Self {
-        Self {
-            inner: Cell::new(value),
-        }
+        Self { inner: value }
     }
 }
 
@@ -70,19 +67,19 @@ impl<const K: usize> Kmer<K> {
     pub const fn new() -> Self {
         utils::const_eval::assert_less::<0, K>();
         utils::const_eval::assert_leq::<K, 32>();
-        Self {
-            inner: Cell::new(0),
-        }
+        Self { inner: 0 }
+    }
+
+    pub fn from_bases(bases: [Base; K]) -> Self {
+        let inner = bases.iter().fold(0, |acc, base| acc << 2 | *base as u64);
+        Self { inner }
     }
 
     /// Pushes a base onto the k-mer.
     ///
     /// Bases are pushed to the end of the k-mer, and the bases are shifted to the left, removing the first base.
-    pub fn push(&self, base: Base) -> &Self {
-        let mut inner = self.inner.get();
-        inner <<= 2;
-        inner |= base as u64;
-        self.inner.set(inner);
+    pub fn push(&mut self, base: Base) -> &mut Self {
+        self.inner = (self.inner << 2) | (base as u64);
         self
     }
 
@@ -94,23 +91,9 @@ impl<const K: usize> Kmer<K> {
         }
     }
 
-    /// Get the __unmasked__ inner value of the k-mer.
-    ///
-    /// This copies the inner value, so it can be used multiple times.
-    pub fn inner(&self) -> u64 {
-        self.inner.get()
-    }
-
-    /// Convert the k-mer into its __unmasked__ inner value.
-    ///
-    /// This operation consumes the k-mer.
-    pub const fn into_inner(self) -> u64 {
-        self.inner.into_inner()
-    }
-
     /// Convert the k-mer into its inner value, masked to `K` bases.
-    pub const fn into_masked(self) -> u64 {
-        self.inner.into_inner() & utils::saturating_bitmask(K as u32 * 2)
+    pub const fn as_masked(&self) -> u64 {
+        bitfrob::u64_get_region(0, if K > 31 { 63 } else { K as u32 * 2 - 1 }, self.inner)
     }
 
     /// Shrinks the k-mer to a new size.
@@ -125,10 +108,10 @@ impl<const K: usize> Kmer<K> {
     /// use helicase::small::Kmer;
     /// use helicase::Base;
     ///
-    /// let kmer = Kmer::<5>::new();
+    /// let mut kmer = Kmer::<5>::new();
     /// kmer.push(Base::A).push(Base::A).push(Base::G).push(Base::T);
     /// let resized = kmer.shrink_to::<3>();
-    /// assert_eq!(resized.into_masked(), 0b01_11_10);
+    /// assert_eq!(resized.as_masked(), 0b01_11_10);
     /// ```
     pub const fn shrink_to<const L: usize>(self) -> Kmer<L> {
         utils::const_eval::assert_leq::<L, K>();
@@ -143,9 +126,8 @@ impl<const K: usize> Kmer<K> {
     /// Panics if the combined size of the k-mers is greater than 32.
     pub fn join<const L: usize>(self, other: Kmer<L>) -> Kmer<{ K + L }> {
         utils::const_eval::assert_sum_leq::<K, L, 32>();
-        let kmer = Kmer::<{ K + L }>::new();
-        kmer.inner
-            .set(self.into_inner() << (L * 2) | other.into_inner());
+        let mut kmer = Kmer::<{ K + L }>::new();
+        kmer.inner = (self.inner << (L * 2)) | other.inner;
         kmer
     }
 }
@@ -165,11 +147,11 @@ impl<'a, const K: usize> Iterator for Bases<'a, K> {
             return None;
         }
 
-        let base = (self.inner.inner() >> ((K - self.pos - 1) * 2)) & 3;
+        let base = (self.inner.inner >> ((K - self.pos - 1) * 2)) as u8 & 3;
         self.pos += 1;
 
         // SAFETY: `base` is always in the range `0..4`.
-        Some(unsafe { Base::from_u8_unchecked(base as u8) })
+        Some(unsafe { Base::from_u8_unchecked(base) })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -190,11 +172,12 @@ mod tests {
     fn new() {
         macro_rules! test_new {
             ($k:expr $(,)?) => {
-                assert_eq!(Kmer::<{ $k }>::new().inner, Cell::new(0));
+                assert_eq!(Kmer::<{ $k }>::new().inner, 0);
             };
-            ($k:expr, $($rest:expr),*) => {
-                assert_eq!(Kmer::<{ $k }>::new().inner, Cell::new(0));
-                test_new!($($rest),*);
+            ($($k:expr),*) => {
+                $(
+                    assert_eq!(Kmer::<{ $k }>::new().inner, 0);
+                )*
             };
         }
 
@@ -206,7 +189,7 @@ mod tests {
 
     #[test]
     fn bases_simple() {
-        let kmer = Kmer::<5>::new();
+        let mut kmer = Kmer::<5>::new();
         kmer.push(Base::A)
             .push(Base::C)
             .push(Base::G)
@@ -219,7 +202,7 @@ mod tests {
 
     #[test]
     fn bases_large() {
-        let kmer = Kmer::<23>::new();
+        let mut kmer = Kmer::<23>::new();
         for _ in 0..10 {
             kmer.push(Base::A).push(Base::C);
         }
@@ -239,14 +222,12 @@ mod tests {
 
         assert_eq!(bases[18], Base::C);
 
-        for i in 19..23 {
-            assert_eq!(bases[i], Base::T);
-        }
+        assert_eq!(bases[19..23], vec![Base::T, Base::T, Base::T, Base::T]);
     }
 
     #[test]
     fn convert() {
-        let kmer = Kmer::<5>::new();
+        let mut kmer = Kmer::<5>::new();
         kmer.push(Base::A)
             .push(Base::C)
             .push(Base::G)
@@ -260,17 +241,17 @@ mod tests {
 
     #[test]
     fn into_masked() {
-        let kmer: Kmer<2> = Kmer::new();
+        let mut kmer: Kmer<2> = Kmer::new();
         kmer.push(Base::A).push(Base::A);
-        assert_eq!(kmer.into_masked(), 0x05);
+        assert_eq!(kmer.as_masked(), 0x05);
     }
 
     #[cfg(feature = "unstable_nightly")]
     #[test]
     fn join() {
-        let kmer1 = Kmer::<2>::new();
+        let mut kmer1 = Kmer::<2>::new();
         kmer1.push(Base::A).push(Base::C);
-        let kmer2 = Kmer::<2>::new();
+        let mut kmer2 = Kmer::<2>::new();
         kmer2.push(Base::G).push(Base::T);
         let kmer3 = kmer1.join(kmer2);
         let bases: Vec<Base> = kmer3.bases().collect();

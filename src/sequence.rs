@@ -1,3 +1,5 @@
+use std::iter::FusedIterator;
+
 use crate::Base;
 
 pub struct Sequence {
@@ -14,7 +16,7 @@ impl Sequence {
     }
 
     pub fn kmers<const K: usize>(&self) -> SmallKmerIter<'_, K> {
-        let kmer = crate::small::Kmer::<K>::new();
+        let mut kmer = crate::small::Kmer::<K>::new();
         self.bases.iter().take(K - 1).copied().for_each(|base| {
             kmer.push(base);
         });
@@ -39,9 +41,18 @@ impl<'a, const K: usize> Iterator for SmallKmerIter<'a, K> {
     fn next(&mut self) -> Option<Self::Item> {
         self.kmer.push(*self.seq.bases.get(self.pos)?);
         self.pos += 1;
-        Some(self.kmer.clone())
+        Some(self.kmer)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.seq.bases.len() - self.pos;
+        (remaining, Some(remaining))
     }
 }
+
+impl<'a, const K: usize> FusedIterator for SmallKmerIter<'a, K> {}
+
+impl<'a, const K: usize> ExactSizeIterator for SmallKmerIter<'a, K> {}
 
 #[cfg(test)]
 mod tests {

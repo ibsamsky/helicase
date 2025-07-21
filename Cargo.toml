@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bitvec = {version = "1.0.1", optional = true}
+bitfrob = "1.3.2"
+bitvec = { version = "1.0.1", optional = true }
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = "0.6.0"
 fastrand = "2.3.0"
 
 [features]
@@ -19,5 +20,3 @@ bitvec = ["dep:bitvec"]
 [[bench]]
 name = "kmer"
 harness = false
-
-# [profile.bench]
