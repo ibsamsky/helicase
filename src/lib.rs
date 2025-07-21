@@ -6,12 +6,14 @@
 
 mod base;
 mod kmer;
+#[cfg(feature = "bitvec")]
 mod sequence;
 
 pub use base::Base;
 pub use kmer::small;
 #[cfg(feature = "bitvec")]
 pub use kmer::{growable, unbounded};
+#[cfg(feature = "bitvec")]
 pub use sequence::Sequence;
 
 pub(crate) mod utils {
@@ -22,10 +24,6 @@ pub(crate) mod utils {
 
         pub(crate) const fn assert_leq<const L: usize, const K: usize>() {
             assert!(L <= K);
-        }
-
-        pub(crate) const fn assert_sum_less<const L: usize, const K: usize, const M: usize>() {
-            assert!(L + K < M);
         }
 
         pub(crate) const fn assert_sum_leq<const L: usize, const K: usize, const M: usize>() {
